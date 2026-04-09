@@ -35,7 +35,7 @@
 #ifdef __APPLE__
 #include <term.h>
 #else
-#include <termio.h>
+#include <termios.h>
 #endif
 
 static char buffer[1024];
