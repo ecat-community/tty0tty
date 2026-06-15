@@ -2,6 +2,86 @@
 # tty0tty - linux null modem emulator v1.2 
 
 
+## Quick start — 100 virtual ports + friendly names
+
+This checkout is [ecat-community/tty0tty](https://github.com/ecat-community/tty0tty) plus a small customization that:
+
+- defaults the driver to **100 virtual serial ports** (50 null-modem pairs), and
+- exposes **library-friendly aliases** `/dev/ttyUSB100`…`/dev/ttyUSB199` — many serial libraries (e.g. pyserial's `comports()`) only auto-list `ttyUSB*` / `ttyACM*` / `ttyS*`, not the bare `tnt*` names.
+
+### One-command install
+
+```bash
+sudo ./install_tty0tty.sh
+```
+
+`install_tty0tty.sh` is path-relative (it resolves its own location via `BASH_SOURCE`), so it runs correctly from any directory and survives the folder being moved. It performs: build → install `.ko` + base udev rule → `depmod` → write `pairs=50` modprobe option → enable boot-time autoload → generate alias rules → reload udev and swap the module → verify.
+
+### Resulting devices
+
+Original kernel names (50 null-modem pairs, consecutive indices are cross-connected):
+
+```
+/dev/tnt0  ─┐  pair 0    (TX↔RX, RTS↔CTS, DTR↔DSR/CD)
+/dev/tnt1  ─┘
+/dev/tnt2  ─┐  pair 1
+/dev/tnt3  ─┘
+…                          (50 pairs total)
+/dev/tnt98 ─┐  pair 49
+/dev/tnt99 ─┘
+```
+
+Each `/dev/tntN` additionally gets an alias (both names point to the same device):
+
+```
+/dev/ttyUSB100 -> /dev/tnt0      /dev/ttyUSB101 -> /dev/tnt1      (pair 0)
+/dev/ttyUSB102 -> /dev/tnt2      /dev/ttyUSB103 -> /dev/tnt3      (pair 1)
+…
+/dev/ttyUSB198 -> /dev/tnt98     /dev/ttyUSB199 -> /dev/tnt99     (pair 49)
+```
+
+Aliases start at **100** to stay clear of real USB-serial adapters already on this machine (`ttyUSB0`, `ttyUSB10`…`ttyUSB17`). Use whichever name your tool recognizes.
+
+### Configuring the count / aliases (no source edit)
+
+The port count comes from the module's built-in `pairs` parameter (`devices = 2 × pairs`, clamped to 1…128). Override per-run via env vars:
+
+```bash
+sudo -E PAIRS=16 ./install_tty0tty.sh                            # 32 ports
+sudo -E ALIAS_PREFIX=ttyACM ALIAS_OFFSET=0 ./install_tty0tty.sh  # /dev/ttyACM0..
+```
+
+Or change the live count without rebuilding:
+
+```bash
+sudo modprobe -r tty0tty && sudo modprobe tty0tty pairs=16
+```
+
+### Reboot behaviour
+
+| Written to disk by the script | Survives reboot? |
+|---|---|
+| `/lib/modules/<kernel>/extra/tty0tty.ko` | ✅ same kernel only |
+| `/etc/udev/rules.d/50-tty0tty.rules` (permissions) | ✅ |
+| `/etc/udev/rules.d/51-tty0tty-aliases.rules` (symlinks) | ✅ |
+| `/etc/modprobe.d/tty0tty.conf` (`options tty0tty pairs=50`) | ✅ |
+| `/etc/modules-load.d/tty0tty.conf` (boot-time autoload) | ✅ |
+
+A plain reboot restores all 100 ports **and** aliases automatically — no need to re-run the script. **Exception:** a kernel update changes `uname -r`, so the installed `.ko` (under the old `/lib/modules/<old>/`) is no longer found → re-run `install_tty0tty.sh`. Fully hands-off rebuilds across kernel updates would require DKMS (see *Debian package* below).
+
+### What changed vs. the upstream fork
+
+Only one source file differs from ecat-community/tty0tty — the udev rule `module/50-tty0tty.rules`:
+
+```diff
+-KERNEL=="tnt[0-9]", GROUP="dialout"     # matched only tnt0..tnt9
++KERNEL=="tnt[0-9]*", GROUP="dialout"    # matches tnt0..tnt99 (required for >10 ports)
+```
+
+The 100-port count, the `ttyUSB*` aliases and the reboot persistence are all delivered by `install_tty0tty.sh` and the on-disk config files it writes — the driver source itself is stock.
+
+---
+
 The tty0tty directory tree is divided in:
 
   **module** - linux kernel module null-modem  

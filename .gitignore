@@ -41,3 +41,6 @@ files
 
 # vim temporary file
 *.swp
+
+# Serena MCP tool state (local only)
+.serena/
